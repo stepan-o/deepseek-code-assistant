@@ -1,0 +1,107 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+dist/
+wheelhouse/
+develop-eggs/
+downloads/
+.eggs/
+*.egg-info/
+*.egg
+MANIFEST
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.pytest_cache/
+.cache/
+nosetests.xml
+junit.xml
+
+# Type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+
+# Virtual environments / env files
+.venv/
+venv/
+ENV/
+env/
+.env
+.env.*
+*.env
+.python-version
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs & temp
+logs/
+*.log
+tmp/
+temp/
+
+# Databases / caches / artifacts
+*.db
+*.sqlite
+*.sqlite3
+*.pkl
+*.bin
+
+# Project storage (vector DB, caches)
+storage/**/cache*/
+storage/**/index*/
+storage/**/vectors*/
+storage/**/data*/
+storage/**/*.db
+storage/**/*.sqlite*
+storage/**/*.bin
+storage/**/*.pkl
+
+# Configuration & secrets
+config.yaml
+config.local.yaml
+config/*.local.yaml
+config/*.secret.yaml
+.secrets*
+secrets.*
+
+# Keep example configs
+!config.example.yaml
+!config/**/*.example.yaml
+
+# Editors / IDEs
+.idea/
+.vscode/
+*.iml
+
+# OS-specific
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+ehthumbs.db
+
+# Optional: frontend artifacts under ui/
+ui/node_modules/
+ui/dist/
+ui/build/
