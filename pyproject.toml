@@ -1,9 +1,9 @@
 [build-system]
-requires = ["uv_build>=0.9.26,<0.10.0"]
-build-backend = "uv_build"
+requires = ["hatchling>=1.18"]  # Let's use hatchling for now - more stable
+build-backend = "hatchling.build"
 
 [project]
-name = "deepseek-code-assistant"
+name = "deepseek-assistant"
 version = "0.1.0"
 description = "Local-first AI pair programming assistant with DeepSeek integration."
 readme = "README.md"
@@ -31,8 +31,8 @@ classifiers = [
     "Topic :: Utilities",
 ]
 
-# Core runtime dependencies: HTTP client, YAML config, async file handling,
-# env management, rich CLI output, CLI framework
+# Core runtime dependencies for the assistant package
+# HTTP client, YAML config, async file handling, env management, rich CLI output, CLI framework
 dependencies = [
     "httpx>=0.24",
     "PyYAML>=6.0",
@@ -55,12 +55,9 @@ dev = [
     "mypy>=1.8",
     "types-PyYAML>=6.0.12",
     "types-requests>=2.31.0.20240218",
-    "mkdocs>=1.5",
-    "mkdocs-material>=9.4",
     "pre-commit>=3.0",
 ]
 
-# Optional feature groups
 analysis = [
     "tree-sitter>=0.21.0",
     "tree-sitter-languages>=1.8.0",
@@ -90,29 +87,41 @@ web = [
 # A convenient bundle of all optional features (excluding dev tools)
 full = [
     # Include via reference to other groups
-    "deepseek-code-assistant[analysis]",
-    "deepseek-code-assistant[rag]",
-    "deepseek-code-assistant[git]",
-    "deepseek-code-assistant[web]",
+    "deepseek-assistant[analysis]",
+    "deepseek-assistant[rag]",
+    "deepseek-assistant[git]",
+    "deepseek-assistant[web]",
 ]
 
 [project.scripts]
 # Primary CLI entry point
-deepseek = "src.deepseek_code_assistant.cli.main:cli"
+deepseek = "assistant.cli.main:cli"
 # Alternative/legacy names for convenience
-ds = "src.deepseek_code_assistant.cli.main:cli"
-deepseek-chat = "src.deepseek_code_assistant.cli.main:cli"
+ds = "assistant.cli.main:cli"
+deepseek-chat = "assistant.cli.main:cli"
 
 [project.urls]
-Homepage = "https://github.com/stepan-o/deepseek-code-assistant"
-Repository = "https://github.com/stepan-o/deepseek-code-assistant"
-"Issue Tracker" = "https://github.com/stepan-o/deepseek-code-assistant/issues"
+Homepage = "https://github.com/stpOSkin/deepseek-code-assistant"
+Repository = "https://github.com/stpOSkin/deepseek-code-assistant"
+"Issue Tracker" = "https://github.com/stpOSkin/deepseek-code-assistant/issues"
 Documentation = "https://github.com/stepan-o/deepseek-code-assistant"
 
-# ---------------------------
-# Developer Tooling
-# ---------------------------
+# Hatchling configuration for multi-package layout
+[tool.hatch.build]
+skip-excluded-dirs = true
 
+[tool.hatch.build.targets.wheel]
+packages = [
+    "src/assistant",
+    "src/snapshotter",
+]
+
+# uv configuration (just for dependency management)
+[tool.uv]
+managed = true
+package = true  # This just says "uv manages this package" - should be boolean
+
+# Development tool configurations
 [tool.black]
 line-length = 100
 target-version = ["py310", "py311", "py312"]
@@ -154,10 +163,8 @@ line_length = 100
 multi_line_output = 3
 known_first_party = ["src"]
 known_third_party = ["click", "rich", "httpx", "yaml", "dotenv"]
-skip = ["src/deepseek_code_assistant.egg-info"]
 
 [tool.mypy]
-python_version = "3.10"
 check_untyped_defs = true
 disallow_any_generics = true
 disallow_incomplete_defs = true
@@ -176,15 +183,9 @@ exclude = [
 ]
 
 [tool.pytest.ini_options]
-minversion = "7.0"
-addopts = "-q --cov=src --cov-report=term-missing"
-testpaths = ["tests"]
 asyncio_mode = "auto"
-filterwarnings = [
-    "error",
-    # Ignore deprecation warnings from dependencies
-    "ignore::DeprecationWarning",
-]
+addopts = "-v --tb=short"
+testpaths = ["tests"]
 
 [tool.coverage.run]
 branch = true
@@ -209,12 +210,3 @@ exclude_lines = [
     "class .*\\bProtocol\\):",
     "@(abc\\.)?abstractmethod",
 ]
-
-# ---------------------------
-# uv package manager support
-# ---------------------------
-[tool.uv]
-managed = true
-
-# Note: For uv, we use [project.optional-dependencies] above,
-# which uv will automatically pick up. No need for duplicate [dependency-groups]

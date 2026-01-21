@@ -1,4 +1,3 @@
-# src/cli/main.py
 #!/usr/bin/env python3
 """
 Main CLI entry point for DeepSeek Code Assistant.
@@ -10,16 +9,9 @@ import click
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
-from rich.markdown import Markdown
 
-# Try to import our modules, provide helpful errors if missing
-try:
-    from src.api.client import DeepSeekClient
-    from src.ui.chat_cli import ChatCLI
-except ImportError as e:
-    print(f"❌ Import error: {e}")
-    print("Please install the package first: pip install -e .")
-    sys.exit(1)
+from assistant.api.client import DeepSeekClient
+from assistant.ui.chat_cli import ChatCLI
 
 console = Console()
 
@@ -93,8 +85,13 @@ async def _chat_async(config_path: str):
 @click.option('--config', '-c', default="config.yaml", help="Path to config file")
 def test(config):
     """Test API connection and configuration."""
+    # This is a synchronous function, need to run async code
+    asyncio.run(_test_async(config))
+
+async def _test_async(config_path: str):
+    """Async wrapper for test command."""
     try:
-        client = DeepSeekClient(config)
+        client = DeepSeekClient(config_path)
 
         table = Table(title="Configuration Test")
         table.add_column("Component", style="cyan")
