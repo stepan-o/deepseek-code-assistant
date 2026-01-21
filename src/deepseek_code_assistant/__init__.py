@@ -1,4 +1,4 @@
-# src/__init__.py
+# src/deepseek_code_assistant/__init__.py
 """
 DeepSeek Code Assistant - A local-first, code-native AI pair programmer.
 """
