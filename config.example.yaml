@@ -1,0 +1,12 @@
+deepseek:
+  base_url: "https://api.deepseek.com"
+  model: "deepseek-chat"
+
+app:
+  max_tokens: 4096
+  temperature: 0.7
+  stream: true
+
+paths:
+  storage: "./storage"
+  conversations: "./storage/conversations"

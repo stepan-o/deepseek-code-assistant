@@ -105,3 +105,5 @@ ehthumbs.db
 ui/node_modules/
 ui/dist/
 ui/build/
+
+.output.txt

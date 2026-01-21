@@ -1,0 +1,274 @@
+[build-system]
+requires = ["hatchling>=1.18"]
+build-backend = "hatchling.build"
+
+[project]
+name = "deepseek-code-assistant"
+version = "0.1.0"
+description = "Local-first AI pair programming assistant with DeepSeek integration."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10,<3.13"
+authors = [
+  { name = "DeepSeek Code Assistant Team", email = "dev@deepseek.local" }
+]
+keywords = [
+  "AI", "LLM", "DeepSeek", "code", "assistant", "RAG", "developer-tools",
+  "cli", "pair-programming", "local-first"
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Environment :: Console",
+  "Topic :: Software Development",
+  "Topic :: Utilities",
+]
+
+# Core runtime dependencies: HTTP client, YAML config, async file handling,
+# env management, rich CLI output, CLI framework
+dependencies = [
+  "httpx>=0.24",
+  "PyYAML>=6.0",
+  "aiofiles>=23.0",
+  "python-dotenv>=1.0",
+  "rich>=13.0",
+  "click>=8.1",
+]
+
+[project.optional-dependencies]
+# Development tooling: tests, format, lint, type check, coverage, docs
+dev = [
+  "pytest>=7.4",
+  "pytest-asyncio>=0.23",
+  "coverage[toml]>=7.4",
+  "black>=24.0",
+  "ruff>=0.5.0",
+  "mypy>=1.8",
+  "types-PyYAML>=6.0.12",
+  "types-requests>=2.31.0.20240218",
+  "mkdocs>=1.5",
+  "mkdocs-material>=9.4",
+]
+
+# Optional feature groups
+analysis = [
+  "libcst>=1.1",
+  "asttokens>=2.4",
+  "parso>=0.8.3",
+]
+
+rag = [
+  "sentence-transformers>=2.3",
+  "faiss-cpu>=1.7; platform_system != 'Windows'",
+  "numpy>=1.24",
+  "scikit-learn>=1.3",
+]
+
+git = [
+  "GitPython>=3.1",
+]
+
+web = [
+  "fastapi>=0.111",
+  "uvicorn[standard]>=0.29",
+]
+
+# A convenient bundle of all optional features (excluding dev tools)
+full = [
+  # analysis
+  "libcst>=1.1",
+  "asttokens>=2.4",
+  "parso>=0.8.3",
+  # rag
+  "sentence-transformers>=2.3",
+  "faiss-cpu>=1.7; platform_system != 'Windows'",
+  "numpy>=1.24",
+  "scikit-learn>=1.3",
+  # git
+  "GitPython>=3.1",
+  # web
+  "fastapi>=0.111",
+  "uvicorn[standard]>=0.29",
+]
+
+[project.scripts]
+# Primary CLI entry point
+deepseek = "src.cli.main:cli"
+# Alternative/legacy names for convenience
+ds = "src.cli.main:cli"
+deepseek-assist = "src.cli.main:cli"
+
+[project.urls]
+Homepage = "https://github.com/your-org/deepseek-code-assistant"
+Repository = "https://github.com/your-org/deepseek-code-assistant"
+"Issue Tracker" = "https://github.com/your-org/deepseek-code-assistant/issues"
+Documentation = "https://your-org.github.io/deepseek-code-assistant"
+
+[tool.hatch.build]
+skip-excluded-dirs = true
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "README.md",
+  "config.example.yaml",
+  "config.yaml",
+  "src/**",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = [
+  # The project currently imports from the top-level package "src".
+  # This setting ensures the package gets installed accordingly.
+  "src",
+]
+
+# ---------------------------
+# Developer Tooling
+# ---------------------------
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312"]
+include = '\\.(py|pyi)$'
+exclude = [
+  "/build/",
+  "/dist/",
+  "/.venv/",
+  "/.git/",
+  "/.mypy_cache/",
+  "/.ruff_cache/",
+  "/__pycache__/",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["build", "dist", ".venv", "src/deepseek_code_assistant.egg-info"]
+
+[tool.ruff.lint]
+select = [
+  "E",  # pycodestyle errors
+  "F",  # pyflakes
+  "I",  # isort (import sorting)
+  "B",  # bugbear
+  "UP", # pyupgrade
+]
+ignore = []
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "lf"
+
+[tool.isort]
+profile = "black"
+line_length = 100
+multi_line_output = 3
+known_first_party = ["src"]
+known_third_party = ["click", "rich", "httpx", "yaml", "dotenv"]
+skip = ["src/deepseek_code_assistant.egg-info"]
+
+[tool.mypy]
+python_version = "3.10"
+check_untyped_defs = true
+disallow_any_generics = true
+disallow_incomplete_defs = true
+disallow_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_return_any = true
+warn_unused_configs = true
+no_implicit_optional = true
+strict_equality = true
+pretty = true
+exclude = [
+  "build/",
+  "dist/",
+  "src/deepseek_code_assistant.egg-info/",
+]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-q --cov=src --cov-report=term-missing"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+branch = true
+source = ["src"]
+omit = [
+  "src/deepseek_code_assistant.egg-info/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_lines = [
+  "if __name__ == '__main__':",
+  "pragma: no cover",
+]
+
+# ---------------------------
+# uv package manager support
+# ---------------------------
+[tool.uv]
+managed = true
+
+[tool.uv.sources]
+
+[dependency-groups]
+dev = [
+  "pytest>=7.4",
+  "pytest-asyncio>=0.23",
+  "coverage[toml]>=7.4",
+  "black>=24.0",
+  "ruff>=0.5.0",
+  "mypy>=1.8",
+  "types-PyYAML>=6.0.12",
+  "types-requests>=2.31.0.20240218",
+  "mkdocs>=1.5",
+  "mkdocs-material>=9.4",
+]
+analysis = [
+  "libcst>=1.1",
+  "asttokens>=2.4",
+  "parso>=0.8.3",
+]
+rag = [
+  "sentence-transformers>=2.3",
+  "faiss-cpu>=1.7; platform_system != 'Windows'",
+  "numpy>=1.24",
+  "scikit-learn>=1.3",
+]
+git = [
+  "GitPython>=3.1",
+]
+web = [
+  "fastapi>=0.111",
+  "uvicorn[standard]>=0.29",
+]
+full = [
+  # analysis
+  "libcst>=1.1",
+  "asttokens>=2.4",
+  "parso>=0.8.3",
+  # rag
+  "sentence-transformers>=2.3",
+  "faiss-cpu>=1.7; platform_system != 'Windows'",
+  "numpy>=1.24",
+  "scikit-learn>=1.3",
+  # git
+  "GitPython>=3.1",
+  # web
+  "fastapi>=0.111",
+  "uvicorn[standard]>=0.29",
+]
+
