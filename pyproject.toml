@@ -42,6 +42,10 @@ dependencies = [
     "click>=8.1",
     "typing-extensions>=4.0",
     "anyio>=4.0",
+    "openai>=2.15.0",
+    "langgraph>=1.0.7",
+    "pydantic>=2.12.5",
+    "boto3>=1.42.33",
 ]
 
 [project.optional-dependencies]
@@ -99,6 +103,7 @@ deepseek = "assistant.cli.main:cli"
 # Alternative/legacy names for convenience
 ds = "assistant.cli.main:cli"
 deepseek-chat = "assistant.cli.main:cli"
+snapshotter = "snapshotter.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/stpOSkin/deepseek-code-assistant"

@@ -107,3 +107,7 @@ ui/dist/
 ui/build/
 
 .output.txt
+
+# directories used by the Snapshotter
+out/
+.snapshotter_tmp/
