@@ -43,6 +43,7 @@ class ContextManager:
         self.max_context_tokens = max_context_tokens
         self.code_context = CodeContext(files={})
         self.conversation_history = []
+        self.snapshot_metadata = None  # ADDED: Snapshot metadata attribute
 
     def add_file(self, filename: str, content: str):
         """Add a file to context."""
@@ -104,7 +105,8 @@ class ContextManager:
         """Save context to file."""
         data = {
             'code_context': self.code_context.to_dict(),
-            'conversation_history': self.conversation_history
+            'conversation_history': self.conversation_history,
+            'snapshot_metadata': self.snapshot_metadata  # ADDED: Save snapshot metadata
         }
 
         with open(filepath, 'w') as f:
@@ -117,3 +119,4 @@ class ContextManager:
 
         self.code_context = CodeContext.from_dict(data['code_context'])
         self.conversation_history = data['conversation_history']
+        self.snapshot_metadata = data.get('snapshot_metadata')  # ADDED: Load snapshot metadata

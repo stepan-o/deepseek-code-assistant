@@ -18,6 +18,7 @@ from assistant.api.client import DeepSeekClient
 from assistant.ui.chat_cli import ChatCLI
 from assistant.core.file_loader import FileLoader
 from assistant.core.context_manager import ContextManager
+from assistant.core.snapshot_loader import SnapshotLoader
 
 console = Console()
 
@@ -91,7 +92,6 @@ async def _chat_async(config_path: str):
 @click.option('--config', '-c', default="config.yaml", help="Path to config file")
 def test(config):
     """Test API connection and configuration."""
-    # This is a synchronous function, need to run async code
     asyncio.run(_test_async(config))
 
 async def _test_async(config_path: str):
@@ -169,6 +169,326 @@ def config(show_key):
     console.print(table)
 
 @cli.command()
+@click.argument('snapshot_dir')
+def load_snapshot(snapshot_dir):
+    """Load a snapshot into context with architectural awareness."""
+    _load_snapshot_sync(snapshot_dir)
+
+def _load_snapshot_sync(snapshot_dir: str):
+    """Synchronous wrapper for load-snapshot command."""
+    try:
+        console.print(f"[bold cyan]📦 Loading snapshot: {snapshot_dir}[/bold cyan]")
+
+        # Initialize snapshot loader
+        loader = SnapshotLoader()
+
+        # Load snapshot artifacts
+        with console.status("[bold green]Loading snapshot artifacts..."):
+            try:
+                artifacts = loader.load_snapshot(snapshot_dir)
+                console.print("[green]✅ Snapshot artifacts loaded[/green]")
+            except Exception as e:
+                console.print(f"[red]❌ Failed to load snapshot: {e}[/red]")
+                return
+
+        # Get key files from snapshot
+        key_files = loader.get_key_files(artifacts, max_files=15)
+
+        if not key_files:
+            console.print("[yellow]⚠️  No key files identified in snapshot[/yellow]")
+            return
+
+        console.print(f"[yellow]📂 Found {len(key_files)} key files[/yellow]")
+
+        # Initialize context manager
+        ctx_manager = ContextManager()
+
+        # Load existing context if available
+        ctx_file = Path("storage/current_context.json")
+        if ctx_file.exists():
+            try:
+                ctx_manager.load_context(str(ctx_file))
+                console.print("[yellow]📂 Merging with existing context[/yellow]")
+            except Exception as e:
+                console.print(f"[yellow]⚠️  Could not load existing context: {e}[/yellow]")
+
+        # Load key files
+        file_loader = FileLoader()
+        loaded_files = {}
+
+        console.print("[dim]Loading key files...[/dim]")
+
+        for file_path in key_files:
+            try:
+                # Try to load file relative to snapshot directory
+                snapshot_path = Path(snapshot_dir)
+
+                # Check if file exists in snapshot directory
+                file_abs_path = snapshot_path.parent.parent.parent / file_path
+                if file_abs_path.exists():
+                    content = file_loader.load_file(str(file_abs_path))
+                    if content:
+                        loaded_files[file_path] = content
+                        console.print(f"  [green]✓[/green] {file_path}")
+                else:
+                    # Try to load from original repo location
+                    content = file_loader.load_file(file_path)
+                    if content:
+                        loaded_files[file_path] = content
+                        console.print(f"  [green]✓[/green] {file_path}")
+                    else:
+                        console.print(f"  [yellow]⚠️[/yellow] {file_path} (not found)")
+            except Exception as e:
+                console.print(f"  [red]✗[/red] {file_path}: {e}")
+
+        # Add loaded files to context
+        for file_path, content in loaded_files.items():
+            ctx_manager.add_file(file_path, content)
+
+        # Create system message from architecture context
+        system_message = loader.create_system_message(artifacts)
+
+        # Save snapshot metadata to context
+        ctx_manager.snapshot_metadata = {
+            'snapshot_dir': snapshot_dir,
+            'snapshot_name': artifacts.get('snapshot_name', 'unknown'),
+            'system_context': system_message,
+            'artifacts_loaded': list(artifacts.get('loaded_artifacts', {}).keys()),
+            'key_files_loaded': list(loaded_files.keys()),
+            'architecture_summary': artifacts.get('loaded_artifacts', {}).get('architecture_summary', {})
+        }
+
+        # Save updated context
+        storage_dir = Path("storage")
+        storage_dir.mkdir(exist_ok=True)
+        ctx_manager.save_context(str(ctx_file))
+
+        # Show summary
+        console.print(f"\n[green]✅ Snapshot loaded successfully![/green]")
+        console.print(f"   📦 Snapshot: {artifacts.get('snapshot_name', 'unknown')}")
+        console.print(f"   📄 Files loaded: {len(loaded_files)}/{len(key_files)}")
+        console.print(f"   🏗️  Architecture context: {len(system_message):,} chars")
+
+        # Show architecture overview
+        arch_summary = artifacts.get('loaded_artifacts', {}).get('architecture_summary', {})
+        if arch_summary and isinstance(arch_summary, dict):
+            arch_context = arch_summary.get('architecture_context', {})
+            if arch_context:
+                overview = arch_context.get('overview', '').strip()
+                if overview:
+                    console.print(f"\n[bold]Architecture Overview:[/bold]")
+                    console.print(overview[:300] + ("..." if len(overview) > 300 else ""))
+
+        console.print(f"\n[bold]Next steps:[/bold]")
+        console.print("   deepseek chat      - Start chat with architectural context")
+        console.print("   deepseek ask <q>   - Ask questions about the architecture")
+
+    except Exception as e:
+        console.print(f"[red]❌ Error loading snapshot: {e}[/red]")
+        import traceback
+        traceback.print_exc()
+
+@cli.command()
+@click.argument('repo_name', required=False)
+def list_snapshots(repo_name):
+    """List available snapshots for a repository."""
+    try:
+        from assistant.core.snapshot_loader import SnapshotLoader
+
+        loader = SnapshotLoader()
+        snapshots_dir = Path("snapshots")
+
+        if not snapshots_dir.exists():
+            console.print("[yellow]⚠️  No snapshots directory found[/yellow]")
+            console.print("   Run snapshotter first: uv run snapshotter --dotenv --dry-run")
+            return
+
+        if repo_name:
+            # List snapshots for specific repo
+            repo_dir = snapshots_dir / repo_name
+            if not repo_dir.exists():
+                console.print(f"[red]❌ No snapshots found for repository: {repo_name}[/red]")
+                available = [d.name for d in snapshots_dir.iterdir() if d.is_dir()]
+                if available:
+                    console.print(f"   Available repositories: {', '.join(available)}")
+                return
+
+            snapshot_dirs = []
+            for item in repo_dir.iterdir():
+                if item.is_dir() and item.name:
+                    snapshot_dirs.append(item)
+
+            if not snapshot_dirs:
+                console.print(f"[yellow]⚠️  No snapshots found for {repo_name}[/yellow]")
+                return
+
+            # Sort by timestamp
+            snapshot_dirs.sort(key=lambda x: x.name, reverse=True)
+
+            table = Table(title=f"Snapshots for {repo_name}", box=ROUNDED)
+            table.add_column("Timestamp", style="cyan")
+            table.add_column("Path", style="yellow")
+            table.add_column("Age", style="dim")
+
+            from datetime import datetime
+            now = datetime.now()
+
+            for snapshot_dir in snapshot_dirs:
+                try:
+                    # Parse timestamp from directory name
+                    ts_str = snapshot_dir.name
+                    ts = datetime.strptime(ts_str, "%Y%m%d_%H%M%S")
+
+                    # Calculate age
+                    delta = now - ts
+                    if delta.days > 0:
+                        age = f"{delta.days}d ago"
+                    elif delta.seconds > 3600:
+                        age = f"{delta.seconds // 3600}h ago"
+                    elif delta.seconds > 60:
+                        age = f"{delta.seconds // 60}m ago"
+                    else:
+                        age = f"{delta.seconds}s ago"
+
+                    table.add_row(ts_str, str(snapshot_dir.relative_to(Path.cwd())), age)
+                except:
+                    table.add_row(snapshot_dir.name, str(snapshot_dir.relative_to(Path.cwd())), "unknown")
+
+            console.print(table)
+
+        else:
+            # List all repositories with snapshots
+            repos = []
+            for item in snapshots_dir.iterdir():
+                if item.is_dir():
+                    # Check if it has any snapshot directories
+                    has_snapshots = any(subitem.is_dir() for subitem in item.iterdir())
+                    if has_snapshots:
+                        repos.append(item)
+
+            if not repos:
+                console.print("[yellow]⚠️  No snapshots found[/yellow]")
+                console.print("   Run snapshotter first: uv run snapshotter --dotenv --dry-run")
+                return
+
+            table = Table(title="Available Snapshots", box=ROUNDED)
+            table.add_column("Repository", style="cyan")
+            table.add_column("Snapshots", style="yellow", justify="right")
+            table.add_column("Latest", style="green")
+
+            for repo_dir in sorted(repos, key=lambda x: x.name):
+                snapshot_dirs = [d for d in repo_dir.iterdir() if d.is_dir()]
+                snapshot_dirs.sort(key=lambda x: x.name, reverse=True)
+
+                latest = snapshot_dirs[0].name if snapshot_dirs else "None"
+
+                table.add_row(repo_dir.name, str(len(snapshot_dirs)), latest)
+
+            console.print(table)
+            console.print("\n[bold]Usage:[/bold]")
+            console.print("   deepseek list-snapshots <repo_name>  - List snapshots for specific repo")
+            console.print("   deepseek load-snapshot <path>        - Load a snapshot into context")
+
+    except Exception as e:
+        console.print(f"[red]❌ Error listing snapshots: {e}[/red]")
+
+@cli.command()
+@click.argument('snapshot_dir')
+def snapshot_info(snapshot_dir):
+    """Show detailed information about a snapshot."""
+    try:
+        from assistant.core.snapshot_loader import SnapshotLoader
+
+        console.print(f"[bold cyan]📦 Snapshot Info: {snapshot_dir}[/bold cyan]")
+
+        # Initialize snapshot loader
+        loader = SnapshotLoader()
+
+        # Load snapshot artifacts
+        with console.status("[bold green]Loading snapshot..."):
+            try:
+                artifacts = loader.load_snapshot(snapshot_dir)
+            except Exception as e:
+                console.print(f"[red]❌ Failed to load snapshot: {e}[/red]")
+                return
+
+        # Display snapshot metadata
+        table = Table(title="Snapshot Metadata", box=ROUNDED, show_header=False)
+        table.add_column("Property", style="cyan")
+        table.add_column("Value", style="yellow")
+
+        table.add_row("Path", artifacts.get('snapshot_path', 'unknown'))
+        table.add_row("Name", artifacts.get('snapshot_name', 'unknown'))
+
+        loaded_artifacts = artifacts.get('loaded_artifacts', {})
+        table.add_row("Artifacts Loaded", f"{len(loaded_artifacts)}")
+
+        console.print(table)
+
+        # Show architecture summary
+        arch_summary = loaded_artifacts.get('architecture_summary')
+        if arch_summary and isinstance(arch_summary, dict):
+            arch_context = arch_summary.get('architecture_context', {})
+
+            if arch_context:
+                console.print("\n[bold]🏗️  Architecture Summary[/bold]")
+
+                # Overview
+                overview = arch_context.get('overview', '').strip()
+                if overview:
+                    console.print(Panel(overview, title="Overview", border_style="cyan"))
+
+                # Key modules
+                key_modules = arch_context.get('key_modules', [])
+                if key_modules and isinstance(key_modules, list):
+                    console.print("\n[bold]Key Modules:[/bold]")
+                    for i, module in enumerate(key_modules[:5], 1):
+                        if isinstance(module, dict):
+                            name = module.get('name', f'Module {i}')
+                            desc = module.get('description', '').strip()
+                            if desc:
+                                console.print(f"  {i}. [cyan]{name}[/cyan]: {desc}")
+                            else:
+                                console.print(f"  {i}. {name}")
+
+                # Technology stack
+                tech_stack = arch_context.get('tech_stack', [])
+                if tech_stack and isinstance(tech_stack, list):
+                    console.print("\n[bold]Technology Stack:[/bold]")
+                    for tech in tech_stack[:10]:
+                        if isinstance(tech, str):
+                            console.print(f"  • {tech}")
+
+                # Design patterns
+                patterns = arch_context.get('patterns', [])
+                if patterns and isinstance(patterns, list):
+                    console.print("\n[bold]Design Patterns:[/bold]")
+                    for pattern in patterns[:5]:
+                        if isinstance(pattern, str):
+                            console.print(f"  • {pattern}")
+
+        # Show key files
+        key_files = loader.get_key_files(artifacts, max_files=10)
+        if key_files:
+            console.print(f"\n[bold]📄 Key Files ({len(key_files)}):[/bold]")
+            for i, file_path in enumerate(key_files[:10], 1):
+                console.print(f"  {i}. {file_path}")
+            if len(key_files) > 10:
+                console.print(f"  ... and {len(key_files) - 10} more")
+
+        # Show onboarding content if available
+        onboarding = loaded_artifacts.get('onboarding')
+        if onboarding:
+            console.print("\n[bold]📋 Onboarding Guide[/bold]")
+            console.print(onboarding[:500] + ("..." if len(onboarding) > 500 else ""))
+
+        console.print(f"\n[bold]Load this snapshot:[/bold]")
+        console.print(f"   deepseek load-snapshot {snapshot_dir}")
+
+    except Exception as e:
+        console.print(f"[red]❌ Error getting snapshot info: {e}[/red]")
+
+@cli.command()
 @click.argument('files', nargs=-1, type=click.Path(exists=True))
 @click.option('--context', '-c', is_flag=True, help="Include file context in chat")
 @click.option('--summary', '-s', is_flag=True, help="Show summary of loaded files")
@@ -195,55 +515,53 @@ def load(files, context, summary):
     # Load files
     console.print(f"[yellow]📂 Loading {len(files)} file(s)...[/yellow]")
 
-    async def _load_files():
-        loader = FileLoader()
-        loaded = await loader.load_multiple_files(files)
+    # FileLoader is synchronous, so we can call it directly
+    loader = FileLoader()
+    loaded = loader.load_multiple_files(files)
 
-        loaded_count = 0
-        total_chars = 0
+    loaded_count = 0
+    total_chars = 0
 
-        for filename, content in loaded.items():
-            ctx_manager.add_file(filename, content)
-            loaded_count += 1
-            total_chars += len(content)
+    for filename, content in loaded.items():
+        ctx_manager.add_file(filename, content)
+        loaded_count += 1
+        total_chars += len(content)
 
-            if summary:
-                # Show file preview
-                lines = content.split('\n')
-                preview = '\n'.join(lines[:10])
-                if len(lines) > 10:
-                    preview += f"\n... [and {len(lines) - 10} more lines]"
+        if summary:
+            # Show file preview
+            lines = content.split('\n')
+            preview = '\n'.join(lines[:10])
+            if len(lines) > 10:
+                preview += f"\n... [and {len(lines) - 10} more lines]"
 
-                console.print(f"\n[bold cyan]📄 {filename}[/bold cyan]")
-                console.print(f"   Size: {len(content):,} chars, {len(lines)} lines")
-                console.print(Syntax(preview, "python", theme="monokai", line_numbers=True))
-            else:
-                console.print(f"  [green]✓[/green] {filename} ({len(content):,} chars)")
-
-        if loaded_count > 0:
-            # Save context if requested or if we're in context mode
-            if context or summary:
-                storage_dir = Path("storage")
-                storage_dir.mkdir(exist_ok=True)
-                ctx_manager.save_context(str(ctx_file))
-
-                if context:
-                    console.print(f"\n[green]✅ {loaded_count} files loaded with context[/green]")
-                    console.print(f"   Context saved to: {ctx_file}")
-                    console.print("\n[bold]Now you can use:[/bold]")
-                    console.print("   deepseek chat      - Interactive chat with file context")
-                    console.print("   deepseek ask <q>   - Direct question about loaded files")
-                else:
-                    console.print(f"\n[green]✅ {loaded_count} files analyzed[/green]")
-                    console.print(f"   Total: {total_chars:,} characters across {loaded_count} files")
-            else:
-                console.print(f"\n[green]✅ {loaded_count} files loaded into memory[/green]")
-                console.print(f"   Total: {total_chars:,} characters")
+            console.print(f"\n[bold cyan]📄 {filename}[/bold cyan]")
+            console.print(f"   Size: {len(content):,} chars, {len(lines)} lines")
+            console.print(Syntax(preview, "python", theme="monokai", line_numbers=True))
         else:
-            console.print("[red]❌ No files could be loaded[/red]")
-            console.print("   Check file permissions and encoding")
+            console.print(f"  [green]✓[/green] {filename} ({len(content):,} chars)")
 
-    asyncio.run(_load_files())
+    if loaded_count > 0:
+        # Save context if requested or if we're in context mode
+        if context or summary:
+            storage_dir = Path("storage")
+            storage_dir.mkdir(exist_ok=True)
+            ctx_manager.save_context(str(ctx_file))
+
+            if context:
+                console.print(f"\n[green]✅ {loaded_count} files loaded with context[/green]")
+                console.print(f"   Context saved to: {ctx_file}")
+                console.print("\n[bold]Now you can use:[/bold]")
+                console.print("   deepseek chat      - Interactive chat with file context")
+                console.print("   deepseek ask <q>   - Direct question about loaded files")
+            else:
+                console.print(f"\n[green]✅ {loaded_count} files analyzed[/green]")
+                console.print(f"   Total: {total_chars:,} characters across {loaded_count} files")
+        else:
+            console.print(f"\n[green]✅ {loaded_count} files loaded into memory[/green]")
+            console.print(f"   Total: {total_chars:,} characters")
+    else:
+        console.print("[red]❌ No files could be loaded[/red]")
+        console.print("   Check file permissions and encoding")
 
 @cli.command()
 @click.argument('query')
@@ -446,54 +764,52 @@ def analyze(files):
 
     console.print(f"[bold cyan]🔍 Analyzing {len(files)} file(s)[/bold cyan]")
 
-    async def _analyze_files():
-        loader = FileLoader()
-        loaded = await loader.load_multiple_files(files)
+    # FileLoader is synchronous
+    loader = FileLoader()
+    loaded = loader.load_multiple_files(files)
 
-        # Create analysis table
-        table = Table(title="File Analysis", box=ROUNDED)
-        table.add_column("File", style="cyan")
-        table.add_column("Size", style="yellow")
-        table.add_column("Lines", justify="right")
-        table.add_column("Language", style="magenta")
+    # Create analysis table
+    table = Table(title="File Analysis", box=ROUNDED)
+    table.add_column("File", style="cyan")
+    table.add_column("Size", style="yellow")
+    table.add_column("Lines", justify="right")
+    table.add_column("Language", style="magenta")
 
-        total_lines = 0
-        total_chars = 0
+    total_lines = 0
+    total_chars = 0
 
-        for filename, content in loaded.items():
-            lines = len(content.split('\n'))
-            chars = len(content)
+    for filename, content in loaded.items():
+        lines = len(content.split('\n'))
+        chars = len(content)
 
-            # Determine language
-            if filename.endswith('.py'):
-                lang = 'Python'
-            elif filename.endswith('.js') or filename.endswith('.ts'):
-                lang = 'JavaScript/TypeScript'
-            elif filename.endswith('.java'):
-                lang = 'Java'
-            elif filename.endswith('.go'):
-                lang = 'Go'
-            elif filename.endswith('.rs'):
-                lang = 'Rust'
-            elif filename.endswith('.cpp') or filename.endswith('.h'):
-                lang = 'C++'
-            else:
-                lang = 'Other'
+        # Determine language
+        if filename.endswith('.py'):
+            lang = 'Python'
+        elif filename.endswith('.js') or filename.endswith('.ts'):
+            lang = 'JavaScript/TypeScript'
+        elif filename.endswith('.java'):
+            lang = 'Java'
+        elif filename.endswith('.go'):
+            lang = 'Go'
+        elif filename.endswith('.rs'):
+            lang = 'Rust'
+        elif filename.endswith('.cpp') or filename.endswith('.h'):
+            lang = 'C++'
+        else:
+            lang = 'Other'
 
-            table.add_row(filename, f"{chars:,}", str(lines), lang)
-            total_lines += lines
-            total_chars += chars
+        table.add_row(filename, f"{chars:,}", str(lines), lang)
+        total_lines += lines
+        total_chars += chars
 
-        console.print(table)
-        console.print(f"\n📊 Summary: {len(loaded)} files, {total_lines:,} lines, {total_chars:,} chars")
-        console.print(f"   Estimated tokens: ~{total_chars // 4:,}")
+    console.print(table)
+    console.print(f"\n📊 Summary: {len(loaded)} files, {total_lines:,} lines, {total_chars:,} chars")
+    console.print(f"   Estimated tokens: ~{total_chars // 4:,}")
 
-        # Ask if user wants to load with context
-        if loaded:
-            console.print("\n[bold]Load these files with context?[/bold]")
-            console.print("   deepseek load --context " + " ".join(files[:3]) + (" ..." if len(files) > 3 else ""))
-
-    asyncio.run(_analyze_files())
+    # Ask if user wants to load with context
+    if loaded:
+        console.print("\n[bold]Load these files with context?[/bold]")
+        console.print("   deepseek load --context " + " ".join(files[:3]) + (" ..." if len(files) > 3 else ""))
 
 @cli.command()
 @click.argument('repo_url')
@@ -662,7 +978,8 @@ def version():
         f"[dim]• Context-aware chat[/dim] [green]✓[/green]\n"
         f"[dim]• AST-aware code parsing[/dim] [yellow]⏳[/yellow]\n"
         f"[dim]• Git integration[/dim] [green]✓[/green]\n"
-        f"[dim]• Enhanced context management[/dim] [green]✓[/green]\n",
+        f"[dim]• Enhanced context management[/dim] [green]✓[/green]\n"
+        f"[dim]• Snapshot integration[/dim] [green]✓[/green]\n",
         title="Version Info"
     ))
 
@@ -746,9 +1063,16 @@ def init():
     console.print("\n[bold]Git Integration:[/bold]")
     console.print("   deepseek clone <repo_url> --load-context")
     console.print("   deepseek quickload <repo_url>")
-    console.print("\n[bold]Example:[/bold]")
-    console.print("   deepseek quickload https://github.com/psf/requests")
-    console.print("   deepseek ask \"How does this library handle HTTP sessions?\"")
+    console.print("\n[bold]Snapshot Integration:[/bold]")
+    console.print("   uv run snapshotter --dotenv --dry-run")
+    console.print("   deepseek list-snapshots")
+    console.print("   deepseek load-snapshot <snapshot_path>")
+    console.print("   deepseek snapshot-info <snapshot_path>")
+    console.print("\n[bold]Example Workflow:[/bold]")
+    console.print("   1. uv run snapshotter --dotenv --dry-run")
+    console.print("   2. deepseek load-snapshot snapshots/my-repo/20240101_120000/")
+    console.print("   3. deepseek chat")
+    console.print("   4. deepseek ask \"How does this architecture handle authentication?\"")
 
 if __name__ == "__main__":
     cli()

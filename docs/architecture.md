@@ -95,3 +95,27 @@ deepseek-code-assistant/
         ├── PASS2_SEMANTIC.json                     # Output of LLM-based semantic analysis
         ├── PASS2_SUPPORT_PACK.json                 # Supporting files with source code
         └── repo_index.json                         # Index of all files in the target repo
+
+📊 ASYNC VS SYNC SUMMARY:
+Should be ASYNC (use network/API):
+1. chat command - calls DeepSeek API
+2. test command - tests API connection
+3. ask command - calls DeepSeek API
+4. clone command - clones from git remote
+5. quickload command - clones from git remote
+
+Should be SYNC (local file I/O only):
+1. load command - loads local files (currently async but shouldn't be)
+2. load-snapshot command - loads local snapshot files
+3. list-snapshots command - lists local directories
+4. snapshot-info command - reads local files
+5. config command - reads local config files
+6. context command - manages local context files
+7. analyze command - analyzes local files
+8. version command - prints static info
+9. init command - creates local files
+
+ARCHITECTURAL PRINCIPLE (SYNC VS ASYNC):
+The codebase has a mismatch - some file operations are async when they shouldn't be.
+
+Main principle: sync for LOCAL operations (file I/O), Async for NETWORK operations (API, git remote)

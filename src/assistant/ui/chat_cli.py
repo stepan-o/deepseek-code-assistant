@@ -66,7 +66,14 @@ class ChatCLI:
                 # Show context info
                 if self.context_manager.code_context.files:
                     file_count = len(self.context_manager.code_context.files)
-                    console.print(f"[green]✅ Loaded context with {file_count} file(s)[/green]")
+
+                    # Check if we have snapshot context
+                    if hasattr(self.context_manager, 'snapshot_metadata') and self.context_manager.snapshot_metadata:
+                        snapshot_name = self.context_manager.snapshot_metadata.get('snapshot_name', 'unknown')
+                        console.print(f"[green]✅ Loaded snapshot context: {snapshot_name}[/green]")
+                        console.print(f"[dim]   with {file_count} file(s)[/dim]")
+                    else:
+                        console.print(f"[green]✅ Loaded context with {file_count} file(s)[/green]")
 
                     # Show file list
                     files = list(self.context_manager.code_context.files.keys())
@@ -97,6 +104,7 @@ class ChatCLI:
         else:
             console.print("[yellow]ℹ️  No file context loaded[/yellow]")
             console.print("   Use [bold]deepseek load --context <files>[/bold] to add files")
+            console.print("   Or use [bold]deepseek load-snapshot <path>[/bold] to load a snapshot")
 
         console.print("\n[dim]" + "="*60 + "[/dim]")
         console.print("[bold]Commands:[/bold]")
@@ -109,6 +117,7 @@ class ChatCLI:
         console.print("  /focus <f> - Set focus file")
         console.print("  /load <f>  - Load additional files")
         console.print("  /clearctx  - Clear all context")
+        console.print("  /snapshot  - Show snapshot info")
         console.print("[dim]" + "="*60 + "[/dim]\n")
 
         # Load conversation history from context manager
@@ -129,8 +138,8 @@ class ChatCLI:
                 self.context_manager.add_to_history("user", user_input)
                 self.messages.append({"role": "user", "content": user_input})
 
-                # Build prompt with context
-                messages_with_context = self.context_manager.build_prompt(user_input)
+                # Build prompt with context - NOW INCLUDES ARCHITECTURAL CONTEXT
+                messages_with_context = self._build_prompt_with_architecture(user_input)
 
                 # Show context info if files are loaded
                 if self.context_manager.code_context.files:
@@ -163,8 +172,66 @@ class ChatCLI:
                 console.print(f"\n[red]⚠️  Error: {e}[/red]")
                 continue
 
+    def _build_prompt_with_architecture(self, user_message: str) -> List[Dict[str, str]]:
+        """Build a prompt with architectural context if available."""
+        messages = []
+
+        # Check if we have snapshot metadata with architectural context
+        has_snapshot_context = (
+                hasattr(self.context_manager, 'snapshot_metadata') and
+                self.context_manager.snapshot_metadata and
+                self.context_manager.snapshot_metadata.get('system_context')
+        )
+
+        if has_snapshot_context:
+            # Use architectural context from snapshot
+            system_context = self.context_manager.snapshot_metadata['system_context']
+
+            # Add architectural context with file context if available
+            if self.context_manager.code_context.files:
+                system_prompt = f"""You are a code assistant with deep understanding of this codebase's architecture.
+
+{system_context}
+
+You have access to the following files from this codebase:"""
+
+                for filename, content in self.context_manager.code_context.files.items():
+                    system_prompt += f"\n\n--- File: {filename} ---"
+
+                    # Truncate if too long
+                    if len(content) > 5000:
+                        content = content[:2500] + "\n... [truncated] ...\n" + content[-2500:]
+
+                    system_prompt += f"\n{content}"
+
+                if self.context_manager.code_context.current_file:
+                    system_prompt += f"\n\nCurrently focused on: {self.context_manager.code_context.current_file}"
+            else:
+                # Just architectural context without files
+                system_prompt = f"""You are a code assistant with deep understanding of this codebase's architecture.
+
+{system_context}"""
+
+            messages.append({"role": "system", "content": system_prompt})
+        elif self.context_manager.code_context.files:
+            # Use regular file context without architectural context
+            system_msg = self.context_manager._create_system_message()
+            messages.append({"role": "system", "content": system_msg})
+        else:
+            # No context at all - just a basic assistant
+            messages.append({"role": "system", "content": "You are a helpful code assistant."})
+
+        # Add conversation history
+        for msg in self.context_manager.conversation_history[-10:]:  # Last 10 messages
+            messages.append({"role": msg['role'], "content": msg['content']})
+
+        # Add current user message
+        messages.append({"role": "user", "content": user_message})
+
+        return messages
+
     def _show_context_status(self):
-        """Show current context status."""
+        """Show current context status with snapshot awareness."""
         if not self.context_manager.code_context.files:
             return
 
@@ -172,13 +239,40 @@ class ChatCLI:
         total_chars = sum(len(c) for c in self.context_manager.code_context.files.values())
         estimated_tokens = total_chars // 4
 
-        console.print(Panel.fit(
-            f"[bold]📁 Context:[/bold] {file_count} file(s)\n"
-            f"[bold]📊 Size:[/bold] ~{estimated_tokens:,} tokens\n"
-            f"[bold]🔍 Focus:[/bold] {self.context_manager.code_context.current_file or 'None'}",
-            title="File Context",
-            border_style="cyan"
-        ))
+        # Check if we have snapshot context
+        has_snapshot_context = (
+                hasattr(self.context_manager, 'snapshot_metadata') and
+                self.context_manager.snapshot_metadata
+        )
+
+        if has_snapshot_context:
+            snapshot_name = self.context_manager.snapshot_metadata.get('snapshot_name', 'unknown')
+            snapshot_dir = self.context_manager.snapshot_metadata.get('snapshot_dir', 'unknown')
+
+            panel_content = f"[bold]📦 Snapshot:[/bold] {snapshot_name}\n"
+            panel_content += f"[bold]📁 Files:[/bold] {file_count} file(s)\n"
+            panel_content += f"[bold]📊 Size:[/bold] ~{estimated_tokens:,} tokens\n"
+            panel_content += f"[bold]🔍 Focus:[/bold] {self.context_manager.code_context.current_file or 'None'}"
+
+            console.print(Panel.fit(
+                panel_content,
+                title="Architectural Context",
+                border_style="cyan"
+            ))
+
+            # Show architectural context preview if available
+            if self.context_manager.snapshot_metadata.get('system_context'):
+                arch_context = self.context_manager.snapshot_metadata['system_context']
+                preview = arch_context[:200] + ("..." if len(arch_context) > 200 else "")
+                console.print(f"[dim]🏗️  Architecture: {preview}[/dim]")
+        else:
+            console.print(Panel.fit(
+                f"[bold]📁 Context:[/bold] {file_count} file(s)\n"
+                f"[bold]📊 Size:[/bold] ~{estimated_tokens:,} tokens\n"
+                f"[bold]🔍 Focus:[/bold] {self.context_manager.code_context.current_file or 'None'}",
+                title="File Context",
+                border_style="cyan"
+            ))
 
     def _show_context_usage(self):
         """Show context usage information."""
@@ -206,7 +300,12 @@ class ChatCLI:
             prompt = "[bold cyan]💬 You:[/bold cyan] "
             if self.context_manager.code_context.files:
                 file_count = len(self.context_manager.code_context.files)
-                prompt = f"[bold cyan]💬 You ({file_count}📁):[/bold cyan] "
+
+                # Add snapshot indicator if available
+                if hasattr(self.context_manager, 'snapshot_metadata') and self.context_manager.snapshot_metadata:
+                    prompt = f"[bold cyan]💬 You ({file_count}📁 🏗️):[/bold cyan] "
+                else:
+                    prompt = f"[bold cyan]💬 You ({file_count}📁):[/bold cyan] "
 
             # Use asyncio for async input
             user_input = await loop.run_in_executor(None, lambda: console.input(prompt).strip())
@@ -252,6 +351,9 @@ class ChatCLI:
         elif cmd == "/clearctx":
             await self._handle_clear_context()
 
+        elif cmd == "/snapshot":
+            await self._handle_snapshot_command(args)
+
         else:
             console.print(f"[red]❓ Unknown command: {cmd}[/red]")
             console.print("Type /help for available commands")
@@ -271,6 +373,7 @@ class ChatCLI:
         help_table.add_row("/focus <file>", "Set focus file")
         help_table.add_row("/load <files>", "Load additional files")
         help_table.add_row("/clearctx", "Clear all context (files & conversation)")
+        help_table.add_row("/snapshot", "Show snapshot information")
 
         console.print("\n[bold]Available Commands:[/bold]")
         console.print(help_table)
@@ -310,9 +413,17 @@ class ChatCLI:
             if self.context_manager.code_context.current_file:
                 console.print(f"🔍 Focus file: {self.context_manager.code_context.current_file}")
 
+            # Show snapshot info if available
+            if hasattr(self.context_manager, 'snapshot_metadata') and self.context_manager.snapshot_metadata:
+                snapshot_name = self.context_manager.snapshot_metadata.get('snapshot_name', 'unknown')
+                console.print(f"\n[cyan]📦 Snapshot Context: {snapshot_name}[/cyan]")
+
         elif args[0] == "clear":
             self.context_manager.code_context.files.clear()
             self.context_manager.code_context.current_file = None
+            # Also clear snapshot metadata
+            if hasattr(self.context_manager, 'snapshot_metadata'):
+                self.context_manager.snapshot_metadata = None
             self._save_context()
             console.print("[green]✅ Context cleared[/green]")
 
@@ -401,7 +512,7 @@ class ChatCLI:
         console.print(f"[yellow]📂 Loading {len(args)} file(s)...[/yellow]")
 
         loader = FileLoader()
-        loaded = await loader.load_multiple_files(args)
+        loaded = loader.load_multiple_files(args)
 
         for filename, content in loaded.items():
             self.context_manager.add_file(filename, content)
@@ -419,8 +530,46 @@ class ChatCLI:
         self.context_manager.code_context.current_file = None
         self.context_manager.conversation_history = []
         self.messages = []
+        # Clear snapshot metadata too
+        if hasattr(self.context_manager, 'snapshot_metadata'):
+            self.context_manager.snapshot_metadata = None
         self._save_context()
         console.print("[green]✅ All context cleared (files & conversation)[/green]")
+
+    async def _handle_snapshot_command(self, args: List[str]):
+        """Handle snapshot information command."""
+        if not hasattr(self.context_manager, 'snapshot_metadata') or not self.context_manager.snapshot_metadata:
+            console.print("[yellow]⚠️  No snapshot context loaded[/yellow]")
+            console.print("   Use: deepseek load-snapshot <snapshot_path>")
+            return
+
+        metadata = self.context_manager.snapshot_metadata
+
+        console.print("[bold cyan]📦 Snapshot Information[/bold cyan]")
+        console.print(f"  Name: {metadata.get('snapshot_name', 'unknown')}")
+        console.print(f"  Directory: {metadata.get('snapshot_dir', 'unknown')}")
+
+        artifacts = metadata.get('artifacts_loaded', [])
+        if artifacts:
+            console.print(f"  Artifacts: {', '.join(artifacts)}")
+
+        key_files = metadata.get('key_files_loaded', [])
+        if key_files:
+            console.print(f"  Key files loaded: {len(key_files)}")
+            for i, f in enumerate(key_files[:5], 1):
+                console.print(f"    {i}. {f}")
+            if len(key_files) > 5:
+                console.print(f"    ... and {len(key_files) - 5} more")
+
+        # Show architecture summary preview
+        arch_summary = metadata.get('architecture_summary', {})
+        if arch_summary and isinstance(arch_summary, dict):
+            arch_context = arch_summary.get('architecture_context', {})
+            if arch_context:
+                overview = arch_context.get('overview', '').strip()
+                if overview:
+                    console.print(f"\n[bold]🏗️  Architecture Overview:[/bold]")
+                    console.print(overview[:400] + ("..." if len(overview) > 400 else ""))
 
     async def _save_conversation(self):
         """Save conversation to file."""
@@ -439,6 +588,18 @@ class ChatCLI:
                 f.write(f"**Date:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
 
                 # Save context info
+                if hasattr(self.context_manager, 'snapshot_metadata') and self.context_manager.snapshot_metadata:
+                    snapshot_name = self.context_manager.snapshot_metadata.get('snapshot_name', 'unknown')
+                    f.write(f"## Snapshot Context: {snapshot_name}\n\n")
+
+                    arch_summary = self.context_manager.snapshot_metadata.get('architecture_summary', {})
+                    if arch_summary and isinstance(arch_summary, dict):
+                        arch_context = arch_summary.get('architecture_context', {})
+                        if arch_context:
+                            overview = arch_context.get('overview', '').strip()
+                            if overview:
+                                f.write(f"### Architecture Overview\n\n{overview}\n\n")
+
                 if self.context_manager.code_context.files:
                     f.write("## Context Files\n\n")
                     for filename in self.context_manager.code_context.files.keys():
