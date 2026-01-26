@@ -119,3 +119,50 @@ ARCHITECTURAL PRINCIPLE (SYNC VS ASYNC):
 The codebase has a mismatch - some file operations are async when they shouldn't be.
 
 Main principle: sync for LOCAL operations (file I/O), Async for NETWORK operations (API, git remote)
+
+
+
+┌─────────────────────────────────────────────────────────────┐
+│                ARCHITECTURAL REASONING ENGINE               │
+│  (High-level thinking, vision, validation, orchestration)   │
+└─────────────────┬───────────────────────────────────────────┘ 
+                  │ Orchestrates
+                  ▼
+┌─────────────────────────────────────────────────────────────┐
+│         PROGRAMMATIC API (Coordination Layer)               │
+│  (Multi-file planning, structured Q&A, implementation state)│
+└─────────────────┬───────────────────────────────────────────┘
+                  │ Delegates to
+                  ▼
+┌─────────────────────────────────────────────────────────────┐
+│           EXISTING MODULES (Specialized)                    │
+│  - SnapshotLoader   - ContextManager  - FileLoader          │
+│  - DeepSeekClient   - GitIntegration                        │
+└─────────────────┬───────────────────────────────────────────┘
+                  │ Use
+                  ▼
+┌─────────────────────────────────────────────────────────────┐
+│              NEW EXECUTION MODULES                          │
+│  - CodeGenerator   - FileOperator    - ChangeTracker        │
+│  - TestRunner      - Validator       - Reporter             │
+└─────────────────────────────────────────────────────────────┘
+
+
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                    ARCHITECTURAL REASONING ENGINE                   │
+├─────────────────────────────────────────────────────────────────────┤
+│  Core Components:                                                   │
+│   1. State Analyzer    - Understands current architecture           │
+│   2. Vision Creator    - Envisions future state                     │
+│   3. Strategy Planner  - Creates implementation strategy            │
+│   4. Work Chunker      - Breaks strategy into executable chunks     │
+│   5. Orchestrator      - Coordinates execution of chunks            │
+│   6. Validator         - Validates results against vision           │
+│   7. Iteration Manager - Handles feedback and iterations            │
+│                                                                     │
+│  Data Stores:                                                       │
+│   - Knowledge Base    - Architectural patterns, best practices      │
+│   - Session State     - Current reasoning session state             │
+│   - Learning Memory   - Lessons from previous implementations       │
+└─────────────────────────────────────────────────────────────────────┘
