@@ -1,9 +1,19 @@
-# src/deepseek_code_assistant/__init__.py
+# src/assistant/__init__.py
 """
-DeepSeek Code Assistant - A local-first, code-native AI pair programmer.
+DeepSeek Code Assistant with Architectural Reasoning Engine.
 """
 
 __version__ = "0.1.0"
-__author__ = "Stepan Oskin"
-__email__ = "stepanoskin007@gmail.com"
-__description__ = "Local-first AI pair programmer with full codebase awareness"
+__author__ = "DeepSeek Code Assistant Team"
+
+from assistant.core.reasoning_engine import ArchitecturalReasoningEngine
+from assistant.core.learning_engine import LearningEngine
+from assistant.core.programmatic_api import ProgrammaticOrchestrator
+from assistant.core.focused_validator import FocusedValidator
+
+__all__ = [
+    'ArchitecturalReasoningEngine',
+    'LearningEngine',
+    'ProgrammaticOrchestrator',
+    'FocusedValidator'
+]

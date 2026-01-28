@@ -1,6 +1,6 @@
 # src/assistant/ui/chat_cli.py
 """
-Chat CLI interface for DeepSeek Code Assistant.
+Chat CLI interface for DeepSeek Code Assistant - UPDATED WITH ENGINE INTEGRATION.
 """
 import asyncio
 import sys
@@ -30,6 +30,10 @@ class ChatCLI:
 
         # Initialize context manager
         self.context_manager = ContextManager()
+
+        # Initialize engine integration (will be initialized async)
+        self.engine_integration = None
+        self.engine_available = False
 
         # Load configuration
         self.config = self._load_config()
@@ -90,13 +94,44 @@ class ChatCLI:
             except Exception as e:
                 console.print(f"[yellow]⚠️  Could not load context: {e}[/yellow]")
 
+    async def initialize_engine(self):
+        """Initialize the engine integration."""
+        try:
+            console.print("[dim]Initializing architectural reasoning engine...[/dim]")
+            # Try to import and initialize engine integration
+            from assistant.integrations.chat_integration import ChatIntegration, create_chat_integration
+            self.engine_integration = await create_chat_integration(self, self.config_path)
+            self.engine_available = True
+            console.print("[green]✅ Engine integration initialized[/green]")
+            return True
+        except ImportError as e:
+            console.print(f"[yellow]⚠️  Engine integration not available: {e}[/yellow]")
+            console.print("[dim]Some features may be unavailable. Install all dependencies.[/dim]")
+            self.engine_available = False
+            return False
+        except Exception as e:
+            console.print(f"[red]❌ Failed to initialize engine: {e}[/red]")
+            console.print("[dim]Engine features will be unavailable[/dim]")
+            self.engine_integration = None
+            self.engine_available = False
+            return False
+
     async def start(self):
-        """Start the chat interface."""
+        """Start the chat interface with engine integration."""
         # Display welcome banner
         console.print(Panel.fit(
             "[bold cyan]🤖 DeepSeek Code Assistant[/bold cyan]",
-            subtitle="Context-aware AI pair programmer"
+            subtitle="Context-aware AI pair programmer with architectural reasoning"
         ))
+
+        # Initialize engine integration (if available)
+        await self.initialize_engine()
+
+        # Show engine status
+        if self.engine_available and self.engine_integration:
+            engine_status = self.engine_integration.get_engine_status()
+            status_text = "✅ Ready" if engine_status['initialized'] else "❌ Not available"
+            console.print(f"[cyan]🏗️  Architectural Engine: {status_text}[/cyan]")
 
         # Show context status
         if self.context_manager.code_context.files:
@@ -108,16 +143,27 @@ class ChatCLI:
 
         console.print("\n[dim]" + "="*60 + "[/dim]")
         console.print("[bold]Commands:[/bold]")
-        console.print("  /clear     - Clear conversation")
-        console.print("  /exit      - Exit")
-        console.print("  /help      - Show this help")
-        console.print("  /save      - Save conversation")
-        console.print("  /context   - Show/manage context")
-        console.print("  /files     - List files in context")
-        console.print("  /focus <f> - Set focus file")
-        console.print("  /load <f>  - Load additional files")
-        console.print("  /clearctx  - Clear all context")
-        console.print("  /snapshot  - Show snapshot info")
+        console.print("  Standard Chat:")
+        console.print("    /clear     - Clear conversation")
+        console.print("    /exit      - Exit")
+        console.print("    /help      - Show this help")
+        console.print("    /save      - Save conversation")
+        console.print("    /context   - Show/manage context")
+        console.print("    /files     - List files in context")
+        console.print("    /focus <f> - Set focus file")
+        console.print("    /load <f>  - Load additional files")
+        console.print("    /clearctx  - Clear all context")
+        console.print("    /snapshot  - Show snapshot info")
+
+        if self.engine_available:
+            console.print("\n  Architectural Engine:")
+            console.print("    /architect <req> - Start architectural reasoning")
+            console.print("    /architect-init  - Initialize/reinitialize engine")
+            console.print("    /session <cmd>   - Manage implementation sessions")
+            console.print("    /learnings <cmd> - Query and manage learnings")
+            console.print("    /validate <cmd>  - Run validation")
+            console.print("    /engine-status   - Show engine status")
+
         console.print("[dim]" + "="*60 + "[/dim]\n")
 
         # Load conversation history from context manager
@@ -171,6 +217,13 @@ class ChatCLI:
             except Exception as e:
                 console.print(f"\n[red]⚠️  Error: {e}[/red]")
                 continue
+
+        # Cleanup
+        if self.engine_integration:
+            try:
+                await self.engine_integration.cleanup()
+            except:
+                pass
 
     def _build_prompt_with_architecture(self, user_message: str) -> List[Dict[str, str]]:
         """Build a prompt with architectural context if available."""
@@ -298,14 +351,13 @@ You have access to the following files from this codebase:"""
         try:
             # Show prompt with context indicator
             prompt = "[bold cyan]💬 You:[/bold cyan] "
-            if self.context_manager.code_context.files:
-                file_count = len(self.context_manager.code_context.files)
 
-                # Add snapshot indicator if available
-                if hasattr(self.context_manager, 'snapshot_metadata') and self.context_manager.snapshot_metadata:
-                    prompt = f"[bold cyan]💬 You ({file_count}📁 🏗️):[/bold cyan] "
-                else:
-                    prompt = f"[bold cyan]💬 You ({file_count}📁):[/bold cyan] "
+            # Add engine status if available
+            if self.engine_available and self.engine_integration and self.engine_integration.is_available():
+                prompt = "[bold cyan]💬 You (🏗️):[/bold cyan] "
+            elif self.context_manager.code_context.files:
+                file_count = len(self.context_manager.code_context.files)
+                prompt = f"[bold cyan]💬 You ({file_count}📁):[/bold cyan] "
 
             # Use asyncio for async input
             user_input = await loop.run_in_executor(None, lambda: console.input(prompt).strip())
@@ -321,39 +373,41 @@ You have access to the following files from this codebase:"""
         cmd = parts[0].lower()
         args = parts[1:] if len(parts) > 1 else []
 
+        # Standard chat commands
         if cmd == "/clear":
-            self.messages = []
-            self.context_manager.conversation_history = []
-            console.print("[green]🗑️  Conversation cleared[/green]")
-
+            await self._handle_clear_command()
         elif cmd == "/exit":
-            self.conversation_active = False
-            console.print("[bold]👋 Goodbye![/bold]")
-
+            await self._handle_exit_command()
         elif cmd == "/help":
-            self._show_help()
-
+            await self._handle_help_command()
         elif cmd == "/save":
-            await self._save_conversation()
-
+            await self._handle_save_command()
         elif cmd == "/context":
             await self._handle_context_command(args)
-
         elif cmd == "/files":
             await self._handle_files_command(args)
-
         elif cmd == "/focus":
             await self._handle_focus_command(args)
-
         elif cmd == "/load":
             await self._handle_load_command(args)
-
         elif cmd == "/clearctx":
-            await self._handle_clear_context()
-
+            await self._handle_clearctx_command()
         elif cmd == "/snapshot":
             await self._handle_snapshot_command(args)
 
+        # Engine integration commands
+        elif cmd == "/architect":
+            await self._handle_architect_command(args)
+        elif cmd == "/architect-init":
+            await self._handle_architect_init_command()
+        elif cmd == "/session":
+            await self._handle_session_command(args)
+        elif cmd == "/learnings":
+            await self._handle_learnings_command(args)
+        elif cmd == "/validate":
+            await self._handle_validate_command(args)
+        elif cmd == "/engine-status":
+            await self._handle_engine_status_command()
         else:
             console.print(f"[red]❓ Unknown command: {cmd}[/red]")
             console.print("Type /help for available commands")
@@ -364,6 +418,7 @@ You have access to the following files from this codebase:"""
         help_table.add_column("Command", style="cyan")
         help_table.add_column("Description", style="white")
 
+        # Standard commands
         help_table.add_row("/clear", "Clear conversation history")
         help_table.add_row("/exit", "Exit the program")
         help_table.add_row("/help", "Show this help message")
@@ -375,9 +430,43 @@ You have access to the following files from this codebase:"""
         help_table.add_row("/clearctx", "Clear all context (files & conversation)")
         help_table.add_row("/snapshot", "Show snapshot information")
 
+        # Engine commands (if available)
+        if self.engine_available:
+            help_table.add_row("", "")
+            help_table.add_row("[bold]Architectural Engine:[/bold]", "")
+            help_table.add_row("/architect <req>", "Start architectural reasoning")
+            help_table.add_row("/architect-init", "Initialize/reinitialize engine")
+            help_table.add_row("/session <cmd>", "Manage implementation sessions")
+            help_table.add_row("/learnings <cmd>", "Query and manage learnings")
+            help_table.add_row("/validate <cmd>", "Run validation")
+            help_table.add_row("/engine-status", "Show engine status")
+
         console.print("\n[bold]Available Commands:[/bold]")
         console.print(help_table)
         console.print()
+
+    # ============================================================================
+    # STANDARD CHAT COMMAND HANDLERS (preserved from original)
+    # ============================================================================
+
+    async def _handle_clear_command(self):
+        """Clear conversation."""
+        self.messages = []
+        self.context_manager.conversation_history = []
+        console.print("[green]🗑️  Conversation cleared[/green]")
+
+    async def _handle_exit_command(self):
+        """Exit the program."""
+        self.conversation_active = False
+        console.print("[bold]👋 Goodbye![/bold]")
+
+    async def _handle_help_command(self):
+        """Show help."""
+        self._show_help()
+
+    async def _handle_save_command(self):
+        """Save conversation to file."""
+        await self._save_conversation()
 
     async def _handle_context_command(self, args: List[str]):
         """Handle context management commands."""
@@ -524,7 +613,7 @@ You have access to the following files from this codebase:"""
         else:
             console.print("[red]❌ No files could be loaded[/red]")
 
-    async def _handle_clear_context(self):
+    async def _handle_clearctx_command(self):
         """Clear all context."""
         self.context_manager.code_context.files.clear()
         self.context_manager.code_context.current_file = None
@@ -627,6 +716,269 @@ You have access to the following files from this codebase:"""
         except Exception as e:
             console.print(f"[yellow]⚠️  Could not save context: {e}[/yellow]")
 
+    # ============================================================================
+    # ENGINE INTEGRATION COMMAND HANDLERS (new)
+    # ============================================================================
+
+    async def _handle_architect_command(self, args: List[str]):
+        """Start architectural reasoning session."""
+        if not args:
+            console.print("[red]❌ Missing requirements[/red]")
+            console.print("Usage: /architect <requirements>")
+            console.print("Example: /architect \"Add authentication module to the API\"")
+            return
+
+        if not self.engine_available or not self.engine_integration:
+            console.print("[yellow]⚠️  Engine not available[/yellow]")
+            console.print("Try: /architect-init to initialize the engine")
+            return
+
+        requirements = ' '.join(args)
+        console.print(f"[cyan]🏗️  Starting architectural reasoning for:[/cyan] {requirements}")
+
+        try:
+            response = await self.engine_integration.start_architectural_dialogue(requirements)
+
+            # Format and display response
+            if response.get('status') == 'error':
+                console.print(f"[red]❌ {response.get('message', 'Unknown error')}[/red]")
+                if response.get('suggestion'):
+                    console.print(f"[yellow]💡 {response.get('suggestion')}[/yellow]")
+            else:
+                console.print(f"[green]✅ {response.get('message', 'Success')}[/green]")
+
+                # Show details if available
+                if 'details' in response:
+                    details = response['details']
+                    if isinstance(details, dict):
+                        for key, value in details.items():
+                            if value:
+                                console.print(f"[dim]   {key}: {value}[/dim]")
+
+                # Show actions if available
+                if 'actions' in response:
+                    console.print("\n[bold]Available actions:[/bold]")
+                    for action in response['actions'][:3]:
+                        console.print(f"  {action['command']} - {action['description']}")
+
+        except Exception as e:
+            console.print(f"[red]❌ Architectural reasoning failed: {e}[/red]")
+
+    async def _handle_architect_init_command(self):
+        """Initialize or reinitialize the engine."""
+        console.print("[cyan]🔄 Initializing architectural engine...[/cyan]")
+
+        if self.engine_integration:
+            try:
+                await self.engine_integration.cleanup()
+            except:
+                pass
+            self.engine_integration = None
+
+        success = await self.initialize_engine()
+
+        if success:
+            console.print("[green]✅ Engine initialized successfully[/green]")
+        else:
+            console.print("[red]❌ Engine initialization failed[/red]")
+
+    async def _handle_session_command(self, args: List[str]):
+        """Manage implementation sessions."""
+        if not self.engine_available or not self.engine_integration:
+            console.print("[yellow]⚠️  Engine not available[/yellow]")
+            console.print("Try: /architect-init to initialize the engine")
+            return
+
+        if not args:
+            # Show session help
+            console.print("[bold]Session Commands:[/bold]")
+            console.print("  /session plan          - Create implementation plan for current session")
+            console.print("  /session execute       - Execute current session")
+            console.print("  /session summary [id]  - Show session summary")
+            console.print("  /session list          - List all sessions")
+            console.print("  /session chunks list   - List work chunks for current session")
+            console.print("  /session validate      - Validate current session")
+            console.print("  /session iterate       - Create iteration plan based on feedback")
+            return
+
+        command = args[0]
+
+        try:
+            response = await self.engine_integration.handle_session_command(command, args[1:])
+
+            # Format and display response
+            if response.get('status') == 'error':
+                console.print(f"[red]❌ {response.get('message', 'Unknown error')}[/red]")
+                if response.get('suggestion'):
+                    console.print(f"[yellow]💡 {response.get('suggestion')}[/yellow]")
+            else:
+                console.print(f"[green]✅ {response.get('message', 'Success')}[/green]")
+
+                # Show details based on format
+                if 'format' in response:
+                    if response['format'] == 'table':
+                        # Simple table formatting
+                        details = response.get('details', {})
+                        if isinstance(details, dict):
+                            for key, value in details.items():
+                                if value:
+                                    console.print(f"[dim]   {key}: {value}[/dim]")
+                    elif response['format'] == 'sessions_table':
+                        sessions = response.get('details', [])
+                        if sessions:
+                            console.print("\n[bold]Sessions:[/bold]")
+                            for session in sessions[:5]:
+                                console.print(f"  • {session.get('session_id', 'Unknown')} - {session.get('status', 'unknown')}")
+                elif 'details' in response:
+                    details = response['details']
+                    if isinstance(details, dict):
+                        for key, value in details.items():
+                            if value:
+                                console.print(f"[dim]   {key}: {value}[/dim]")
+
+                # Show actions if available
+                if 'actions' in response:
+                    console.print("\n[bold]Available actions:[/bold]")
+                    for action in response['actions'][:3]:
+                        console.print(f"  {action['command']} - {action['description']}")
+
+        except Exception as e:
+            console.print(f"[red]❌ Session command failed: {e}[/red]")
+
+    async def _handle_learnings_command(self, args: List[str]):
+        """Query and manage learnings."""
+        if not self.engine_available or not self.engine_integration:
+            console.print("[yellow]⚠️  Engine not available[/yellow]")
+            console.print("Try: /architect-init to initialize the engine")
+            return
+
+        if not args:
+            # Show learnings help
+            console.print("[bold]Learnings Commands:[/bold]")
+            console.print("  /learnings search <query> - Search for relevant learnings")
+            console.print("  /learnings stats         - Show learning system statistics")
+            console.print("  /learnings capture       - Capture learnings from current session")
+            console.print("  /learnings apply         - Apply learnings to current session")
+            return
+
+        command = args[0]
+
+        try:
+            response = await self.engine_integration.handle_learnings_command(command, args[1:])
+
+            # Format and display response
+            if response.get('status') == 'error':
+                console.print(f"[red]❌ {response.get('message', 'Unknown error')}[/red]")
+            else:
+                console.print(f"[green]✅ {response.get('message', 'Success')}[/green]")
+
+                # Show details based on format
+                if 'format' in response:
+                    if response['format'] == 'learnings_table':
+                        learnings = response.get('details', [])
+                        if learnings:
+                            console.print("\n[bold]Learnings:[/bold]")
+                            for learning in learnings[:3]:
+                                title = learning.get('title', 'Unknown')
+                                category = learning.get('category', 'unknown')
+                                console.print(f"  • [{category}] {title}")
+                    elif response['format'] == 'stats_table':
+                        stats = response.get('details', {})
+                        if stats:
+                            console.print("\n[bold]Statistics:[/bold]")
+                            for key, value in stats.items():
+                                if key not in ['storage_path', 'by_category']:
+                                    console.print(f"  {key}: {value}")
+
+                # Show details if available
+                elif 'details' in response:
+                    details = response['details']
+                    if isinstance(details, dict):
+                        for key, value in details.items():
+                            if value:
+                                console.print(f"[dim]   {key}: {value}[/dim]")
+
+        except Exception as e:
+            console.print(f"[red]❌ Learnings command failed: {e}[/red]")
+
+    async def _handle_validate_command(self, args: List[str]):
+        """Run validation."""
+        if not self.engine_available or not self.engine_integration:
+            console.print("[yellow]⚠️  Engine not available[/yellow]")
+            console.print("Try: /architect-init to initialize the engine")
+            return
+
+        if not args:
+            console.print("[bold]Validation Commands:[/bold]")
+            console.print("  /validate session <id> - Validate a session")
+            console.print("  /validate quick       - Quick validation of current context")
+            return
+
+        try:
+            response = await self.engine_integration.handle_validation_command(args)
+
+            # Format and display response
+            if response.get('status') == 'error':
+                console.print(f"[red]❌ {response.get('message', 'Unknown error')}[/red]")
+                if response.get('suggestion'):
+                    console.print(f"[yellow]💡 {response.get('suggestion')}[/yellow]")
+            else:
+                console.print(f"[green]✅ {response.get('message', 'Success')}[/green]")
+
+                # Show details
+                if 'details' in response:
+                    details = response['details']
+                    if isinstance(details, dict):
+                        for key, value in details.items():
+                            if value:
+                                console.print(f"[dim]   {key}: {value}[/dim]")
+
+                # Show validation result if available
+                if 'validation_result' in response:
+                    result = response['validation_result']
+                    status = result.get('overall_status', 'unknown')
+                    confidence = result.get('confidence_score', 0)
+                    issues = len(result.get('issues_found', []))
+                    warnings = len(result.get('warnings', []))
+
+                    console.print(f"\n[bold]Validation Details:[/bold]")
+                    console.print(f"  Status: {status}")
+                    console.print(f"  Confidence: {confidence:.1%}")
+                    console.print(f"  Issues: {issues}")
+                    console.print(f"  Warnings: {warnings}")
+
+        except Exception as e:
+            console.print(f"[red]❌ Validation command failed: {e}[/red]")
+
+    async def _handle_engine_status_command(self):
+        """Show engine status."""
+        if not self.engine_integration:
+            console.print("[yellow]⚠️  Engine integration not created[/yellow]")
+            return
+
+        try:
+            status = self.engine_integration.get_engine_status()
+
+            table = Table(title="Engine Status", box=ROUNDED, show_header=False)
+            table.add_column("Property", style="cyan")
+            table.add_column("Value", style="yellow")
+
+            table.add_row("Initialized", "✅ Yes" if status['initialized'] else "❌ No")
+            table.add_row("Status", status['status'])
+            table.add_row("Current Session", status['current_session'] or "None")
+            table.add_row("Active Sessions", str(status['active_sessions']))
+            table.add_row("Last Operation", status['last_operation'] or "None")
+            table.add_row("Timestamp", status['timestamp'])
+
+            console.print(table)
+
+        except Exception as e:
+            console.print(f"[red]❌ Failed to get engine status: {e}[/red]")
+
+
+# ============================================================================
+# MAIN ENTRY POINTS
+# ============================================================================
 
 async def main():
     """Main entry point for CLI."""
